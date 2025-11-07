@@ -1,0 +1,73 @@
+import React, { useEffect, useRef } from 'react';
+
+const Modal = ({ isOpen, onClose, children }) => {
+  const modalRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      // 保存当前活动元素，以便关闭时恢复焦点
+      const previousActiveElement = document.activeElement;
+
+      // 将焦点移动到Modal
+      if (modalRef.current) {
+        modalRef.current.focus();
+      }
+
+      // 关闭时恢复焦点
+      return () => {
+        if (previousActiveElement) {
+          previousActiveElement.focus();
+        }
+      };
+    }
+  }, [isOpen]);
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      onClose();
+    }
+    // 可以在这里添加Tab键的限制，以保持焦点在Modal内
+  };
+
+  if (!isOpen) {
+    return null;
+  }
+
+  return (
+    <div
+      ref={modalRef}
+      role="dialog"
+      aria-modal="true"
+      tabIndex={-1} // 使div可聚焦
+      onKeyDown={handleKeyDown}
+      style={{
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        background: 'white',
+        padding: '20px',
+        zIndex: 1000,
+      }}
+    >
+      {children}
+      <button onClick={onClose} autoFocus>关闭</button>
+    </div>
+  );
+};
+
+// 使用示例
+const App = () => {
+  const [isModalOpen, setModalOpen] = React.useState(false);
+
+  return (
+    <div>
+      <button onClick={() => setModalOpen(true)}>打开Modal</button>
+      <Modal isOpen={isModalOpen} onClose={() => setModalOpen(false)}>
+        <p>这是一个Modal</p>
+      </Modal>
+    </div>
+  );
+};
+
+export default App;
