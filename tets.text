@@ -1,0 +1,325 @@
+在 ag-Grid 中使用 `headerComponent` 自定义表头组件，可以让你完全控制表头的显示和交互。以下是完整的配置方法：
+
+## 1. 创建自定义 Header 组件
+
+### React 示例
+```jsx
+// CustomHeader.jsx
+import React from 'react';
+
+const CustomHeader = (props) => {
+  const [sortState, setSortState] = React.useState('none');
+  
+  const handleSort = () => {
+    const order = sortState === 'none' ? 'asc' : sortState === 'asc' ? 'desc' : 'none';
+    setSortState(order);
+    
+    if (order === 'none') {
+      props.column.removeSort();
+    } else {
+      props.column.setSort(order);
+    }
+  };
+
+  const handleFilter = () => {
+    // 自定义过滤逻辑
+  };
+
+  return (
+    <div style={{ 
+      display: 'flex', 
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      width: '100%',
+      padding: '0 10px'
+    }}>
+      <span style={{ fontWeight: 'bold' }}>
+        {props.displayName}
+      </span>
+      <div>
+        <button onClick={handleSort} style={{ marginRight: 5 }}>
+          {sortState === 'asc' ? '↑' : sortState === 'desc' ? '↓' : '↕'}
+        </button>
+        <button onClick={handleFilter}>🔍</button>
+      </div>
+    </div>
+  );
+};
+
+export default CustomHeader;
+```
+
+### Angular 示例
+```typescript
+// custom-header.component.ts
+import { Component } from '@angular/core';
+import { IHeaderAngularComp } from 'ag-grid-angular';
+import { IHeaderParams } from 'ag-grid-community';
+
+@Component({
+  selector: 'app-custom-header',
+  template: `
+    <div class="custom-header">
+      <span class="header-label">{{ params.displayName }}</span>
+      <div class="header-actions">
+        <button (click)="onSortRequested('asc')" [class.active]="isAsc">↑</button>
+        <button (click)="onSortRequested('desc')" [class.active]="isDesc">↓</button>
+        <button (click)="onMenuClick($event)">☰</button>
+      </div>
+    </div>
+  `,
+  styles: [`
+    .custom-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      height: 100%;
+    }
+    .header-actions button {
+      margin-left: 5px;
+      border: none;
+      background: none;
+      cursor: pointer;
+    }
+    .header-actions button.active {
+      color: blue;
+      font-weight: bold;
+    }
+  `]
+})
+export class CustomHeaderComponent implements IHeaderAngularComp {
+  public params: IHeaderParams;
+  public isAsc = false;
+  public isDesc = false;
+
+  agInit(params: IHeaderParams): void {
+    this.params = params;
+    this.params.column.addEventListener('sortChanged', this.onSortChanged.bind(this));
+  }
+
+  onSortRequested(order: 'asc' | 'desc'): void {
+    this.params.setSort(order);
+  }
+
+  onSortChanged(): void {
+    this.isAsc = this.params.column.isSortAscending();
+    this.isDesc = this.params.column.isSortDescending();
+  }
+
+  onMenuClick(event: MouseEvent): void {
+    this.params.showColumnMenu(event.target as HTMLElement);
+  }
+
+  refresh(params: IHeaderParams): boolean {
+    return false;
+  }
+}
+```
+
+## 2. 注册和使用 Header 组件
+
+### React 中配置
+```jsx
+import React from 'react';
+import { AgGridReact } from 'ag-grid-react';
+import CustomHeader from './CustomHeader';
+
+const GridExample = () => {
+  const columnDefs = [
+    {
+      field: 'name',
+      headerName: '姓名',
+      headerComponent: CustomHeader,
+      headerComponentParams: {
+        // 自定义参数
+        menuIcon: 'fa-bars',
+        showFilter: true
+      }
+    },
+    {
+      field: 'age',
+      headerName: '年龄',
+      headerComponent: CustomHeader
+    },
+    // 其他列...
+  ];
+
+  return (
+    <div className="ag-theme-alpine" style={{ height: 400 }}>
+      <AgGridReact
+        columnDefs={columnDefs}
+        rowData={rowData}
+        components={{ CustomHeader }}
+      />
+    </div>
+  );
+};
+```
+
+### Angular 中配置
+```typescript
+// app.module.ts
+import { AgGridModule } from 'ag-grid-angular';
+import { CustomHeaderComponent } from './custom-header.component';
+
+@NgModule({
+  declarations: [CustomHeaderComponent],
+  imports: [
+    AgGridModule.withComponents([CustomHeaderComponent])
+  ]
+})
+export class AppModule { }
+
+// app.component.ts
+columnDefs = [
+  {
+    field: 'name',
+    headerName: '姓名',
+    headerComponent: CustomHeaderComponent,
+    headerComponentParams: {
+      customParam: '自定义值'
+    }
+  }
+];
+```
+
+## 3. Header 组件的参数和方法
+
+### 常用参数 (props.params)
+```javascript
+{
+  column: Column,           // 当前列对象
+  displayName: string,      // 显示名称
+  enableSorting: boolean,   // 是否启用排序
+  enableMenu: boolean,      // 是否启用菜单
+  showColumnMenu: Function, // 显示列菜单的方法
+  setSort: Function,        // 设置排序
+  progressSort: Function,   // 切换排序状态
+  api: GridApi,            // Grid API
+  columnApi: ColumnApi,    // Column API
+  context: any,            // 上下文
+  ...headerComponentParams // 自定义参数
+}
+```
+
+### 常用方法
+```javascript
+// 排序相关
+props.column.setSort('asc' | 'desc' | null);
+props.column.isSortAscending();
+props.column.isSortDescending();
+
+// 菜单相关
+props.showColumnMenu(buttonElement);
+
+// 列相关
+props.column.isVisible();
+props.column.setVisible(true/false);
+props.column.getColId();
+```
+
+## 4. 高级功能示例
+
+### 带搜索框的 Header
+```jsx
+const SearchableHeader = (props) => {
+  const [searchText, setSearchText] = React.useState('');
+
+  const handleSearch = (value) => {
+    setSearchText(value);
+    const filterInstance = props.api.getFilterInstance(props.column.colId);
+    filterInstance.setModel({
+      type: 'contains',
+      filter: value
+    });
+    props.api.onFilterChanged();
+  };
+
+  return (
+    <div style={{ padding: '5px' }}>
+      <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+        {props.displayName}
+      </div>
+      <input
+        type="text"
+        value={searchText}
+        onChange={(e) => handleSearch(e.target.value)}
+        placeholder="搜索..."
+        style={{ width: '100%', padding: '2px' }}
+      />
+    </div>
+  );
+};
+```
+
+### 带下拉筛选的 Header
+```jsx
+const DropdownFilterHeader = (props) => {
+  const options = ['全部', '选项1', '选项2', '选项3'];
+  const [selected, setSelected] = React.useState('全部');
+
+  const handleChange = (value) => {
+    setSelected(value);
+    if (value === '全部') {
+      props.api.setFilterModel(null);
+    } else {
+      const filterInstance = props.api.getFilterInstance(props.column.colId);
+      filterInstance.setModel({
+        type: 'equals',
+        filter: value
+      });
+    }
+    props.api.onFilterChanged();
+  };
+
+  return (
+    <div>
+      <div>{props.displayName}</div>
+      <select 
+        value={selected} 
+        onChange={(e) => handleChange(e.target.value)}
+        style={{ width: '100%', marginTop: '5px' }}
+      >
+        {options.map(opt => (
+          <option key={opt} value={opt}>{opt}</option>
+        ))}
+      </select>
+    </div>
+  );
+};
+```
+
+## 5. 样式自定义技巧
+
+```css
+/* 自定义 Header 样式 */
+.ag-header-cell {
+  /* 覆盖默认样式 */
+}
+
+.custom-header {
+  /* 自定义样式 */
+}
+
+/* 使用 CSS 变量 */
+:root {
+  --header-bg-color: #f8f9fa;
+  --header-text-color: #333;
+}
+
+.custom-header {
+  background: var(--header-bg-color);
+  color: var(--header-text-color);
+}
+```
+
+## 注意事项
+
+1. **性能优化**：复杂的 Header 组件可能影响性能，尽量保持简单
+2. **响应式设计**：确保 Header 组件在不同尺寸下正常显示
+3. **事件处理**：正确处理事件冒泡，避免影响 Grid 的默认行为
+4. **框架兼容**：确保组件与 ag-Grid 版本兼容
+5. **TypeScript 类型**：为组件提供正确的类型定义
+
+通过自定义 Header 组件，你可以实现各种复杂的表头功能，如内联筛选、自定义操作按钮、状态指示器等。
