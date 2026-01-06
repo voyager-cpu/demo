@@ -1,0 +1,388 @@
+import React, { useState, useRef, useEffect, KeyboardEvent } from 'react';
+
+export interface DropdownOption {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+export interface DropdownProps {
+  options: DropdownOption[];
+  value?: string;
+  onChange?: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  ariaLabel?: string;
+  className?: string;
+  buttonClassName?: string;
+  optionClassName?: string;
+}
+
+const Dropdown: React.FC<DropdownProps> = ({
+  options,
+  value,
+  onChange,
+  placeholder = 'Select an option',
+  disabled = false,
+  ariaLabel = 'Dropdown menu',
+  className = '',
+  buttonClassName = '',
+  optionClassName = '',
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [focusedIndex, setFocusedIndex] = useState<number>(-1);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  const selectedOption = options.find(opt => opt.value === value);
+
+  // 重置option引用数组
+  useEffect(() => {
+    optionRefs.current = optionRefs.current.slice(0, options.length);
+  }, [options]);
+
+  // 处理点击外部关闭下拉
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setFocusedIndex(-1);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // 当focusedIndex变化时，聚焦到对应的选项按钮
+  useEffect(() => {
+    if (isOpen && focusedIndex >= 0 && optionRefs.current[focusedIndex]) {
+      optionRefs.current[focusedIndex]?.focus();
+    }
+  }, [focusedIndex, isOpen]);
+
+  // 键盘导航处理函数
+  const handleTriggerKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    switch (e.key) {
+      case 'ArrowDown':
+      case 'ArrowUp':
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (!isOpen) {
+          openDropdown();
+        }
+        break;
+      case 'Escape':
+        if (isOpen) {
+          e.preventDefault();
+          closeDropdown();
+        }
+        break;
+    }
+  };
+
+  const handleOptionKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const enabledOptions = options.map((opt, idx) => ({ opt, idx }))
+      .filter(({ opt }) => !opt.disabled);
+    
+    if (enabledOptions.length === 0) return;
+
+    const currentEnabledIndex = enabledOptions.findIndex(item => item.idx === index);
+    
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (currentEnabledIndex !== -1) {
+          const nextIndex = (currentEnabledIndex + 1) % enabledOptions.length;
+          setFocusedIndex(enabledOptions[nextIndex].idx);
+        } else {
+          setFocusedIndex(enabledOptions[0].idx);
+        }
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        if (currentEnabledIndex !== -1) {
+          const prevIndex = (currentEnabledIndex - 1 + enabledOptions.length) % enabledOptions.length;
+          setFocusedIndex(enabledOptions[prevIndex].idx);
+        } else {
+          setFocusedIndex(enabledOptions[enabledOptions.length - 1].idx);
+        }
+        break;
+
+      case 'Home':
+        e.preventDefault();
+        setFocusedIndex(enabledOptions[0].idx);
+        break;
+
+      case 'End':
+        e.preventDefault();
+        setFocusedIndex(enabledOptions[enabledOptions.length - 1].idx);
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        closeDropdown();
+        break;
+
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (!options[index].disabled) {
+          handleSelect(options[index].value);
+        }
+        break;
+
+      default:
+        // 处理字母键快速导航
+        if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+          e.preventDefault();
+          const char = e.key.toLowerCase();
+          const nextIndex = options.findIndex(
+            (opt, idx) => 
+              idx > index && 
+              !opt.disabled && 
+              opt.label.toLowerCase().startsWith(char)
+          );
+          const finalIndex = nextIndex !== -1 ? nextIndex : 
+            options.findIndex(
+              (opt, idx) => 
+                idx >= 0 && 
+                !opt.disabled && 
+                opt.label.toLowerCase().startsWith(char)
+            );
+          if (finalIndex !== -1) {
+            setFocusedIndex(finalIndex);
+          }
+        }
+        break;
+    }
+  };
+
+  const openDropdown = () => {
+    if (disabled) return;
+    setIsOpen(true);
+    const firstEnabled = options.findIndex(opt => !opt.disabled);
+    setFocusedIndex(firstEnabled !== -1 ? firstEnabled : -1);
+  };
+
+  const closeDropdown = () => {
+    setIsOpen(false);
+    setFocusedIndex(-1);
+    triggerRef.current?.focus();
+  };
+
+  const handleSelect = (selectedValue: string) => {
+    onChange?.(selectedValue);
+    closeDropdown();
+  };
+
+  const handleTriggerClick = () => {
+    if (isOpen) {
+      closeDropdown();
+    } else {
+      openDropdown();
+    }
+  };
+
+  return (
+    <div 
+      ref={dropdownRef} 
+      className={`relative inline-block ${className}`}
+    >
+      {/* 触发按钮 */}
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleTriggerClick}
+        onKeyDown={handleTriggerKeyDown}
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+        className={`
+          flex items-center justify-between w-full px-4 py-2 
+          text-left border border-gray-300 rounded-md 
+          bg-white hover:bg-gray-50 focus:outline-none 
+          focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          transition-colors duration-200
+          ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          ${buttonClassName}
+        `}
+        style={{ minWidth: '200px' }}
+      >
+        <span className="truncate">
+          {selectedOption?.label || placeholder}
+        </span>
+        <svg 
+          className={`w-5 h-5 ml-2 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* 下拉选项菜单 */}
+      {isOpen && (
+        <div 
+          role="listbox"
+          aria-activedescendant={focusedIndex >= 0 ? `option-${focusedIndex}` : undefined}
+          className="
+            absolute z-50 w-full mt-1 bg-white border 
+            border-gray-200 rounded-md shadow-lg
+            overflow-hidden max-h-60 overflow-y-auto
+            focus:outline-none
+          "
+          style={{ top: '100%', left: 0 }}
+        >
+          {options.map((option, index) => (
+            <button
+              key={option.value}
+              ref={el => {
+                optionRefs.current[index] = el;
+              }}
+              type="button"
+              role="option"
+              id={`option-${index}`}
+              aria-selected={option.value === value}
+              aria-disabled={option.disabled}
+              disabled={option.disabled}
+              onClick={() => !option.disabled && handleSelect(option.value)}
+              onKeyDown={(e) => handleOptionKeyDown(e, index)}
+              onMouseEnter={() => !option.disabled && setFocusedIndex(index)}
+              className={`
+                w-full px-4 py-2 text-left
+                transition-colors duration-150
+                focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500
+                ${optionClassName}
+                ${option.disabled 
+                  ? 'opacity-50 cursor-not-allowed text-gray-400' 
+                  : 'cursor-pointer hover:bg-gray-100'
+                }
+                ${option.value === value 
+                  ? 'bg-blue-50 text-blue-700' 
+                  : 'text-gray-900'
+                }
+                ${focusedIndex === index && !option.disabled 
+                  ? 'bg-gray-100' 
+                  : ''
+                }
+              `}
+            >
+              <div className="flex items-center justify-between">
+                <span>{option.label}</span>
+                {option.value === value && (
+                  <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </div>
+            </button>
+          ))}
+          
+          {/* 没有选项时的显示 */}
+          {options.length === 0 && (
+            <div className="px-4 py-2 text-center text-gray-500">
+              No options available
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 使用示例
+export const DropdownExample: React.FC = () => {
+  const [selectedValue, setSelectedValue] = useState<string>('');
+  const [selectedValue2, setSelectedValue2] = useState<string>('option2');
+
+  const options: DropdownOption[] = [
+    { value: 'option1', label: 'Fruits' },
+    { value: 'option2', label: 'Vegetables' },
+    { value: 'option3', label: 'Dairy', disabled: true },
+    { value: 'option4', label: 'Bakery' },
+    { value: 'option5', label: 'Meat' },
+    { value: 'option6', label: 'Seafood' },
+    { value: 'option7', label: 'Beverages' },
+    { value: 'option8', label: 'Snacks' },
+    { value: 'option9', label: 'Condiments' },
+    { value: 'option10', label: 'Frozen Foods' },
+  ];
+
+  return (
+    <div className="p-6 space-y-8 max-w-2xl mx-auto">
+      <div>
+        <h2 className="text-xl font-semibold mb-4">Dropdown with Button Options</h2>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select a category:
+            </label>
+            <Dropdown
+              options={options}
+              value={selectedValue}
+              onChange={setSelectedValue}
+              placeholder="Choose a category"
+              ariaLabel="Category selection dropdown"
+              buttonClassName="border-2 border-gray-300 hover:border-gray-400"
+              optionClassName="py-3 hover:bg-blue-50"
+            />
+            <p className="mt-2 text-sm text-gray-600">
+              Selected: {selectedValue ? options.find(o => o.value === selectedValue)?.label : 'None'}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Pre-selected dropdown:
+            </label>
+            <Dropdown
+              options={options}
+              value={selectedValue2}
+              onChange={setSelectedValue2}
+              ariaLabel="Pre-selected dropdown"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Disabled dropdown:
+            </label>
+            <Dropdown
+              options={options}
+              disabled
+              placeholder="Dropdown is disabled"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+        <h3 className="font-medium text-gray-900 mb-2">Keyboard Navigation Guide:</h3>
+        <ul className="space-y-1 text-sm text-gray-600">
+          <li><strong>↑/↓ Arrow keys</strong>: Navigate between options</li>
+          <li><strong>Enter/Space</strong>: Select focused option</li>
+          <li><strong>Escape</strong>: Close dropdown</li>
+          <li><strong>Home/End</strong>: Jump to first/last option</li>
+          <li><strong>Letter keys (A-Z)</strong>: Quick jump to matching option</li>
+          <li><strong>Tab</strong>: Move focus to next element</li>
+          <li><strong>Shift+Tab</strong>: Move focus to previous element</li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default Dropdown;
