@@ -1,0 +1,159 @@
+使用 `HttpClient` 获取响应时，响应体为空可能有多种原因。以下是常见的问题和解决方案：
+
+## 常见原因及解决方案
+
+### 1. **请求成功但响应体确实为空**
+```java
+HttpClient client = HttpClient.newHttpClient();
+HttpRequest request = HttpRequest.newBuilder()
+        .uri(URI.create("https://example.com"))
+        .build();
+
+HttpResponse<String> response = client.send(request, 
+        HttpResponse.BodyHandlers.ofString());
+
+// 检查状态码和内容
+System.out.println("Status: " + response.statusCode());
+System.out.println("Body: " + response.body()); // 可能真的是空字符串
+```
+
+### 2. **没有正确处理响应**
+```java
+// 错误：未正确处理异步请求
+CompletableFuture<HttpResponse<String>> future = client.sendAsync(request,
+        HttpResponse.BodyHandlers.ofString());
+// 需要等待异步操作完成
+HttpResponse<String> response = future.get();
+```
+
+### 3. **服务器返回错误状态码**
+```java
+HttpResponse<String> response = client.send(request,
+        HttpResponse.BodyHandlers.ofString());
+
+// 检查状态码
+if (response.statusCode() >= 400) {
+    System.out.println("错误响应: " + response.statusCode());
+    // 某些API在错误时返回空body
+}
+```
+
+### 4. **编码问题**
+```java
+// 尝试使用字节方式读取
+HttpResponse<byte[]> response = client.send(request,
+        HttpResponse.BodyHandlers.ofByteArray());
+
+byte[] bodyBytes = response.body();
+String body = new String(bodyBytes, StandardCharsets.UTF_8);
+```
+
+### 5. **连接/超时问题**
+```java
+HttpClient client = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(10))
+        .build();
+
+try {
+    HttpResponse<String> response = client.send(request,
+            HttpResponse.BodyHandlers.ofString());
+} catch (IOException e) {
+    // 网络问题可能导致响应为空
+    e.printStackTrace();
+}
+```
+
+## 完整调试示例
+
+```java
+import java.net.URI;
+import java.net.http.*;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+
+public class HttpClientDebugExample {
+    public static void main(String[] args) {
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(30))
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://httpbin.org/get"))
+                    .header("User-Agent", "Java HttpClient")
+                    .header("Accept", "application/json")
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+
+            // 同步请求
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString());
+
+            // 打印完整信息
+            System.out.println("状态码: " + response.statusCode());
+            System.out.println("响应头: " + response.headers().map());
+            System.out.println("响应体长度: " + response.body().length());
+            System.out.println("响应体内容: " + response.body());
+
+            // 或者使用异步
+            CompletableFuture<HttpResponse<String>> future = 
+                client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            
+            future.thenApply(HttpResponse::body)
+                  .thenAccept(body -> {
+                      if (body == null || body.isEmpty()) {
+                          System.out.println("异步响应体为空");
+                      } else {
+                          System.out.println("异步响应体: " + body);
+                      }
+                  }).join();
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+## 建议的排查步骤
+
+1. **打印调试信息**
+```java
+System.out.println("Status Code: " + response.statusCode());
+System.out.println("Headers: " + response.headers().map());
+System.out.println("Body is null: " + (response.body() == null));
+System.out.println("Body is empty: " + response.body().isEmpty());
+```
+
+2. **使用不同的BodyHandler**
+```java
+// 尝试字节数组
+HttpResponse<byte[]> byteResponse = client.send(request,
+        HttpResponse.BodyHandlers.ofByteArray());
+System.out.println("Byte length: " + byteResponse.body().length);
+
+// 尝试流
+HttpResponse<InputStream> streamResponse = client.send(request,
+        HttpResponse.BodyHandlers.ofInputStream());
+```
+
+3. **检查服务器端**
+   - 使用 Postman/cURL 验证API是否返回数据
+   - 检查API文档，确认响应格式
+
+4. **网络调试**
+```java
+// 启用详细日志
+System.setProperty("jdk.httpclient.HttpClient.log", "all");
+// 或使用JVM参数: -Djdk.httpclient.HttpClient.log=all
+```
+
+最常见的问题是：
+1. 目标API确实返回空响应
+2. 状态码是204/205（无内容）
+3. 异步调用未正确处理
+4. 网络问题导致连接中断
+
+请根据上述方法逐步排查，通常可以找到问题所在。
