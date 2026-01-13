@@ -1,0 +1,286 @@
+为Java方法添加重试机制有多种实现方式。以下是几种常用的方法：
+
+## 1. **简单循环重试（基础版）**
+
+```java
+public class RetryExample {
+    
+    public static <T> T retry(Callable<T> task, int maxAttempts, long delayMs) 
+            throws Exception {
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                lastException = e;
+                System.out.println("Attempt " + attempt + " failed: " + e.getMessage());
+                
+                if (attempt == maxAttempts) {
+                    break;
+                }
+                
+                if (delayMs > 0) {
+                    Thread.sleep(delayMs);
+                }
+            }
+        }
+        
+        throw lastException;
+    }
+    
+    // 使用示例
+    public void example() throws Exception {
+        String result = retry(() -> {
+            return someUnstableMethod();
+        }, 3, 1000); // 重试3次，间隔1秒
+    }
+}
+```
+
+## 2. **Spring Retry（推荐用于Spring项目）**
+
+### 添加依赖：
+```xml
+<dependency>
+    <groupId>org.springframework.retry</groupId>
+    <artifactId>spring-retry</artifactId>
+    <version>2.0.0</version>
+</dependency>
+<dependency>
+    <groupId>org.aspectj</groupId>
+    <artifactId>aspectjweaver</artifactId>
+</dependency>
+```
+
+### 使用注解方式：
+```java
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
+
+@Service
+public class MyService {
+    
+    @Retryable(
+        value = {Exception.class}, // 指定需要重试的异常
+        maxAttempts = 3,           // 最大重试次数
+        backoff = @Backoff(delay = 1000, multiplier = 2) // 延迟策略
+    )
+    public String unstableMethod() {
+        // 你的业务逻辑
+        if (Math.random() < 0.3) {
+            throw new RuntimeException("随机失败");
+        }
+        return "Success";
+    }
+    
+    // 可选的恢复方法
+    @Recover
+    public String recover(Exception e) {
+        return "Fallback result after retry failed";
+    }
+}
+```
+
+## 3. **Guava Retrying库**
+
+### 添加依赖：
+```xml
+<dependency>
+    <groupId>com.github.rholder</groupId>
+    <artifactId>guava-retrying</artifactId>
+    <version>2.0.0</version>
+</dependency>
+```
+
+### 使用示例：
+```java
+import com.github.rholder.retry.*;
+
+import java.util.concurrent.TimeUnit;
+
+public class GuavaRetryExample {
+    
+    public String retryMethod() throws Exception {
+        Retryer<String> retryer = RetryerBuilder.<String>newBuilder()
+                .retryIfException() // 发生异常重试
+                .retryIfResult(result -> result.equals("需要重试的结果")) // 根据结果重试
+                .withWaitStrategy(WaitStrategies.fixedWait(1, TimeUnit.SECONDS)) // 等待策略
+                .withStopStrategy(StopStrategies.stopAfterAttempt(3)) // 停止策略
+                .withRetryListener(new RetryListener() {
+                    @Override
+                    public <V> void onRetry(Attempt<V> attempt) {
+                        System.out.println("第" + attempt.getAttemptNumber() + "次重试");
+                    }
+                })
+                .build();
+        
+        return retryer.call(() -> {
+            return someUnstableMethod();
+        });
+    }
+}
+```
+
+## 4. **自定义重试工具类**
+
+```java
+import java.time.Duration;
+import java.util.function.Predicate;
+
+public class RetryUtils {
+    
+    /**
+     * 通用的重试方法
+     */
+    public static <T> T retry(
+            RetrySupplier<T> supplier,
+            int maxAttempts,
+            Duration initialDelay,
+            Duration maxDelay,
+            Predicate<Exception> retryCondition) throws Exception {
+        
+        Exception lastException = null;
+        long delay = initialDelay.toMillis();
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return supplier.get();
+            } catch (Exception e) {
+                lastException = e;
+                
+                // 判断是否应该重试
+                if (attempt == maxAttempts || !retryCondition.test(e)) {
+                    throw e;
+                }
+                
+                // 指数退避
+                delay = Math.min(delay * 2, maxDelay.toMillis());
+                Thread.sleep(delay);
+            }
+        }
+        
+        throw lastException;
+    }
+    
+    // 函数式接口
+    @FunctionalInterface
+    public interface RetrySupplier<T> {
+        T get() throws Exception;
+    }
+    
+    // 使用示例
+    public void example() throws Exception {
+        String result = retry(
+            () -> apiService.call(),
+            3,
+            Duration.ofSeconds(1),
+            Duration.ofSeconds(10),
+            e -> e instanceof IOException // 只在IOException时重试
+        );
+    }
+}
+```
+
+## 5. **AOP方式实现重试**
+
+```java
+@Aspect
+@Component
+public class RetryAspect {
+    
+    @Around("@annotation(retry)")
+    public Object retry(ProceedingJoinPoint joinPoint, Retry retry) throws Throwable {
+        int maxAttempts = retry.maxAttempts();
+        long delay = retry.delay();
+        Class<? extends Throwable>[] retryExceptions = retry.value();
+        
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                return joinPoint.proceed();
+            } catch (Exception e) {
+                lastException = e;
+                
+                // 检查是否是指定异常
+                boolean shouldRetry = Arrays.stream(retryExceptions)
+                    .anyMatch(exClass -> exClass.isInstance(e));
+                
+                if (!shouldRetry || attempt == maxAttempts) {
+                    throw e;
+                }
+                
+                if (delay > 0) {
+                    Thread.sleep(delay);
+                }
+            }
+        }
+        
+        throw lastException;
+    }
+}
+
+// 自定义注解
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Retry {
+    int maxAttempts() default 3;
+    long delay() default 1000;
+    Class<? extends Throwable>[] value() default {Exception.class};
+}
+
+// 使用注解
+@Service
+public class ApiService {
+    
+    @Retry(maxAttempts = 3, delay = 2000, value = {IOException.class, TimeoutException.class})
+    public String callExternalApi() {
+        // 调用外部API
+    }
+}
+```
+
+## 6. **Resilience4j（功能更全面）**
+
+```java
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
+
+import java.time.Duration;
+import java.util.function.Supplier;
+
+public class ResilienceRetry {
+    
+    private final Retry retry = Retry.of("apiRetry", RetryConfig.custom()
+            .maxAttempts(3)
+            .waitDuration(Duration.ofSeconds(1))
+            .retryOnException(e -> e instanceof IOException)
+            .retryOnResult(result -> result == null)
+            .build());
+    
+    public String executeWithRetry() {
+        Supplier<String> supplier = Retry.decorateSupplier(retry, () -> {
+            return callApi();
+        });
+        
+        return Try.ofSupplier(supplier)
+                .recover(throwable -> "fallback")
+                .get();
+    }
+}
+```
+
+## 选择建议：
+
+1. **简单场景**：使用自定义工具类或简单循环
+2. **Spring项目**：使用Spring Retry（集成方便）
+3. **需要丰富策略**：使用Guava Retrying或Resilience4j
+4. **微服务场景**：推荐Resilience4j（包含熔断、限流等功能）
+5. **需要灵活控制**：使用AOP方式自定义
+
+重试时需要注意：
+- 设置合理的重试次数和间隔
+- 考虑幂等性（特别是写操作）
+- 添加退避策略避免雪崩效应
+- 记录重试日志方便排查问题
